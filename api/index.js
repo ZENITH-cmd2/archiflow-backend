@@ -225,10 +225,61 @@ Genera HTML completo con DOCTYPE e CSS inline professionale.`;
 });
 
 /**
- * AI - Transcribe (placeholder - needs audio handling)
+ * AI - Transcribe Audio
+ * Accepts multipart/form-data with audio file
  */
-app.post("/api/ai/transcribe", (req, res) => {
-    res.status(501).json({ error: "Audio transcription requires file upload - use frontend direct upload" });
+app.post("/api/ai/transcribe", async (req, res) => {
+    try {
+        // For Vercel serverless, we need to handle the raw body
+        // The audio should be sent as base64 in the request body
+        const { audio, mimeType = "audio/webm" } = req.body;
+
+        if (!audio) {
+            return res.status(400).json({ error: "No audio data provided. Send base64 audio in 'audio' field." });
+        }
+
+        // Call OpenRouter with audio (Gemini supports audio)
+        const response = await fetch(OPENROUTER_URL, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "google/gemini-2.0-flash-001",
+                messages: [{
+                    role: "user",
+                    content: [
+                        {
+                            type: "text",
+                            text: "Trascrivi questo audio in italiano. Restituisci SOLO il testo trascritto, nient'altro."
+                        },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: `data:${mimeType};base64,${audio}`
+                            }
+                        }
+                    ]
+                }],
+                temperature: 0.1,
+                max_tokens: 4000
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            console.error("OpenRouter error:", data.error);
+            return res.status(500).json({ error: data.error.message || "Transcription failed" });
+        }
+
+        const transcription = data.choices?.[0]?.message?.content || "";
+        res.json({ success: true, transcription });
+    } catch (error) {
+        console.error("Transcribe error:", error);
+        res.status(500).json({ error: String(error) });
+    }
 });
 
 // Export for Vercel
