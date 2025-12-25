@@ -190,7 +190,7 @@ async function useCredits(userId, amount) {
     const user = snapshot.val();
     if (!user) return false;
 
-    const available = (user.creditsTotal || 100) - (user.creditsUsed || 0);
+    const available = (user.creditsTotal || 10) - (user.creditsUsed || 0);
     if (available < amount) return false;
 
     await userRef.update({ creditsUsed: (user.creditsUsed || 0) + amount });
@@ -459,8 +459,8 @@ app.get("/api/users/:id/stats", verifyToken, async (req, res) => {
 
         res.json({
             creditsUsed: user.creditsUsed || 0,
-            creditsTotal: user.creditsTotal || 100,
-            creditsAvailable: (user.creditsTotal || 100) - (user.creditsUsed || 0),
+            creditsTotal: user.creditsTotal || 10,
+            creditsAvailable: (user.creditsTotal || 10) - (user.creditsUsed || 0),
             projectCount: projects.length,
             callCount: calls.length,
             plan: user.plan || 'Free'
@@ -505,8 +505,8 @@ app.post("/api/ai/generate-report", verifyToken, async (req, res) => {
         const { projectTitle, reportTitle, transcription, areas, writingStyle = "standard" } = req.body;
         if (!transcription) return res.status(400).json({ error: "Transcription required" });
 
-        // Check and use credits (2 credits per report)
-        const hasCredits = await useCredits(req.user.uid, 2);
+        // Check and use credits (1 credit per report)
+        const hasCredits = await useCredits(req.user.uid, 1);
         if (!hasCredits) {
             return res.status(402).json({ error: "Crediti insufficienti" });
         }
