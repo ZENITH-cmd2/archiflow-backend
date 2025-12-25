@@ -187,6 +187,44 @@ Genera HTML completo con DOCTYPE, CSS inline, struttura professionale italiana.`
 });
 
 /**
+ * AI - Convert PDF to HTML Template
+ */
+app.post("/api/ai/convert-pdf", async (req, res) => {
+    try {
+        // For now, return a placeholder response since PDF parsing requires special handling
+        // In production, you'd use a PDF parser and then AI to generate HTML
+        const prompt = `Genera un template HTML professionale per una relazione tecnica architettonica.
+Include: intestazione, corpo con sezioni, piè di pagina.
+Usa placeholder {{TITOLO}}, {{DATA}}, {{CONTENUTO}}, {{AUTORE}}.
+Genera HTML completo con DOCTYPE e CSS inline professionale.`;
+
+        const response = await fetch(OPENROUTER_URL, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "google/gemini-2.0-flash-lite-001",
+                messages: [{ role: "user", content: prompt }],
+                temperature: 0.3,
+                max_tokens: 8000
+            })
+        });
+
+        const data = await response.json();
+        let html = data.choices?.[0]?.message?.content || "";
+        if (html.startsWith("```html")) html = html.slice(7);
+        if (html.endsWith("```")) html = html.slice(0, -3);
+
+        res.json({ success: true, html });
+    } catch (error) {
+        console.error("Convert PDF error:", error);
+        res.status(500).json({ error: String(error) });
+    }
+});
+
+/**
  * AI - Transcribe (placeholder - needs audio handling)
  */
 app.post("/api/ai/transcribe", (req, res) => {
