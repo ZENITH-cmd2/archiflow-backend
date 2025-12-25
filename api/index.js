@@ -1,6 +1,7 @@
 /**
  * Archiflow Backend API for Vercel
  * Express + Firebase Realtime Database + OpenRouter AI
+ * With Authentication Middleware
  */
 const express = require("express");
 const cors = require("cors");
@@ -34,8 +35,39 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_AUDIO = "google/gemini-2.0-flash-001";
 const MODEL_TEXT = "google/gemini-2.0-flash-lite-001";
 
-// --- PROMPTS ---
+// --- AUTH MIDDLEWARE ---
+async function verifyToken(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
 
+    const token = authHeader.split('Bearer ')[1];
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        console.error('Token verification failed:', error.message);
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+}
+
+// Optional auth - doesn't fail if no token
+async function optionalAuth(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split('Bearer ')[1];
+        try {
+            req.user = await admin.auth().verifyIdToken(token);
+        } catch (e) {
+            // Ignore invalid token for optional auth
+        }
+    }
+    next();
+}
+
+// --- PROMPTS ---
 const TRANSCRIPTION_PROMPT = `Trascrivi accuratamente l'audio in italiano.
 Mantieni la punteggiatura corretta e i paragrafi dove necessario.
 Se ci sono termini tecnici di edilizia/architettura, usali correttamente.
@@ -60,53 +92,28 @@ Genera una relazione tecnica HTML professionale basata sulla trascrizione del so
 
 <output_requirements>
 Genera un documento HTML completo con:
-
-1. **Struttura**:
-   - <!DOCTYPE html> con lang="it"
-   - CSS variables per colori e font in :root
-   - Stile professionale con sfondo chiaro e pagina bianca
-   - Layout responsive
-
-2. **Contenuto**:
-   - Header con titolo, progetto e data
-   - Sezione "Oggetto del Sopralluogo" con elenco aree
-   - Sezioni per ogni area con descrizione dettagliata
-   - Sezione "Osservazioni Tecniche" con eventuali criticità
-   - Sezione "Conclusioni e Raccomandazioni"
-   - Area firma in fondo
-
-3. **Stile**:
-   - Font professionale (Segoe UI, Roboto)
-   - Colori sobri (blu scuro per accent, grigi per testo)
-   - Boxes con bordo laterale per evidenziare
-   - Tabelle stilizzate se necessario
-
-4. **Placeholder per foto**:
-   Per ogni area, includi placeholder per foto:
-   <div class="photo-grid">
-     <div class="photo-placeholder">Foto 1 - [Area]</div>
-     <div class="photo-placeholder">Foto 2 - [Area]</div>
-   </div>
+1. Struttura: DOCTYPE html con lang="it", CSS variables, stile professionale
+2. Contenuto: Header, Oggetto del Sopralluogo, Sezioni per area, Osservazioni, Conclusioni, Firma
+3. Stile: Font professionale, colori sobri, boxes con bordo
+4. Placeholder per foto per ogni area
 </output_requirements>
 
 <rules>
 - Scrivi in italiano professionale
-- Espandi i concetti menzionati nella trascrizione
-- Usa terminologia tecnica appropriata
+- Espandi i concetti dalla trascrizione
 - NO markdown, solo HTML valido
 - Inizia con <!DOCTYPE html>
 </rules>`;
 
 const REFINE_PROMPT = `<role>
-Sei un assistente tecnico esperto in relazioni di cantiere. Il tuo compito è MODIFICARE un documento HTML esistente secondo le istruzioni dell'utente.
+Sei un assistente tecnico. MODIFICA un documento HTML esistente secondo le istruzioni.
 </role>
 
 <critical_rules>
-1. **NON INVENTARE INFORMAZIONI**: Modifica SOLO ciò che l'utente chiede esplicitamente
-2. **PRESERVA IL CONTENUTO**: Mantieni tutto il resto del documento INTATTO
-3. **MODIFICHE MINIME**: Fai solo le modifiche richieste, niente di più
-4. **NO ALLUCINAZIONI**: Se l'utente chiede qualcosa di ambiguo, chiedi chiarimenti invece di inventare
-5. **MANTIENI STRUTTURA**: Non cambiare la struttura HTML/CSS se non richiesto
+1. NON INVENTARE INFORMAZIONI
+2. PRESERVA IL CONTENUTO non richiesto
+3. MODIFICHE MINIME
+4. MANTIENI STRUTTURA HTML/CSS
 </critical_rules>
 
 <current_document>
@@ -117,43 +124,31 @@ Sei un assistente tecnico esperto in relazioni di cantiere. Il tuo compito è MO
 {user_message}
 </user_request>
 
-<instructions>
-Analizza la richiesta dell'utente e applica SOLO le modifiche richieste al documento.
-Se la richiesta è poco chiara, rispondi con un messaggio che inizia con "CLARIFICATION:" seguito dalla domanda.
-Altrimenti, restituisci il documento HTML completo modificato.
-NON aggiungere spiegazioni, restituisci SOLO l'HTML.
-</instructions>`;
+Restituisci SOLO l'HTML modificato, senza spiegazioni.`;
 
 const PDF_TEMPLATE_PROMPT = `<role>
-Sei un esperto front-end developer specializzato in conversione PDF-to-HTML pixel-perfect.
+Sei un esperto front-end developer specializzato in conversione PDF-to-HTML.
 </role>
 
 <objective>
-Trasforma il contenuto PDF in un template HTML5 professionale riutilizzabile con:
-1. Fedeltà visiva al 95%+
-2. Codice semantico e mantenibile  
-3. Placeholder Jinja2/Mustache per riuso
+Crea un template HTML5 professionale riutilizzabile.
 </objective>
 
 <requirements>
-1. CSS Variables per tutti i colori in :root
-2. Placeholder doppia parentesi graffa: {{title}}, {{date}}, {{content}}
+1. CSS Variables per colori in :root
+2. Placeholder: {{title}}, {{date}}, {{content}}
 3. Media query per stampa
-4. NO markdown, solo HTML puro
-5. Inizia con <!DOCTYPE html>
+4. NO markdown, solo HTML
 </requirements>
 
 <critical_output_rules>
-RESTITUISCI SOLO ED ESCLUSIVAMENTE IL CODICE HTML.
-- NESSUN testo introduttivo o spiegazioni
-- NESSUN commento prima o dopo l'HTML
-- NESSUN "Ecco il template:" o frasi simili
-- Inizia DIRETTAMENTE con <!DOCTYPE html>
+RESTITUISCI SOLO IL CODICE HTML.
+- NESSUN testo introduttivo
+- Inizia con <!DOCTYPE html>
 - Termina con </html>
 </critical_output_rules>`;
 
 // --- HELPER FUNCTIONS ---
-
 async function callOpenRouter(messages, model = MODEL_TEXT, maxTokens = 8000) {
     const response = await fetch(OPENROUTER_URL, {
         method: "POST",
@@ -188,11 +183,22 @@ function cleanHtmlResponse(html) {
     return cleaned.trim();
 }
 
-// --- ENDPOINTS ---
+async function useCredits(userId, amount) {
+    if (!db) return false;
+    const userRef = db.ref(`users/${userId}`);
+    const snapshot = await userRef.once('value');
+    const user = snapshot.val();
+    if (!user) return false;
 
-/**
- * Health Check
- */
+    const available = (user.creditsTotal || 100) - (user.creditsUsed || 0);
+    if (available < amount) return false;
+
+    await userRef.update({ creditsUsed: (user.creditsUsed || 0) + amount });
+    return true;
+}
+
+// --- PUBLIC ENDPOINTS ---
+
 app.get("/api/health", (req, res) => {
     res.json({
         status: "healthy",
@@ -202,9 +208,6 @@ app.get("/api/health", (req, res) => {
     });
 });
 
-/**
- * AI Health Check
- */
 app.get("/api/ai/health", (req, res) => {
     res.json({
         status: "ok",
@@ -214,21 +217,17 @@ app.get("/api/ai/health", (req, res) => {
     });
 });
 
-/**
- * USERS
- */
-app.get("/api/users", async (req, res) => {
-    if (!db) return res.status(503).json({ error: "Database not configured" });
-    try {
-        const snapshot = await db.ref("users").once("value");
-        res.json(snapshot.val() ? Object.values(snapshot.val()) : []);
-    } catch (error) {
-        res.status(500).json({ error: String(error) });
-    }
-});
+// --- PROTECTED ENDPOINTS (require auth) ---
 
-app.get("/api/users/:id", async (req, res) => {
+// USERS
+app.get("/api/users/:id", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
+
+    // Can only access own user data
+    if (req.params.id !== req.user.uid) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
     try {
         const snapshot = await db.ref(`users/${req.params.id}`).once("value");
         const user = snapshot.val();
@@ -239,41 +238,51 @@ app.get("/api/users/:id", async (req, res) => {
     }
 });
 
-app.post("/api/users", async (req, res) => {
+app.put("/api/users/:id", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
+    if (req.params.id !== req.user.uid) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
     try {
-        const { id, email, name, plan, creditsTotal, avatar } = req.body;
-        if (!id || !email) return res.status(400).json({ error: "Missing required fields" });
-        const newUser = {
-            id, email: email.toLowerCase().trim(), name, plan, creditsTotal,
-            creditsUsed: 0, avatar, createdAt: new Date().toISOString()
-        };
-        await db.ref(`users/${id}`).set(newUser);
-        res.status(201).json(newUser);
+        const updates = req.body;
+        delete updates.id; // Can't change ID
+        delete updates.creditsTotal; // Can't change total credits
+        await db.ref(`users/${req.params.id}`).update(updates);
+        res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: String(error) });
     }
 });
 
-/**
- * PROJECTS
- */
-app.get("/api/projects", async (req, res) => {
+// PROJECTS
+app.get("/api/projects", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
     try {
-        const snapshot = await db.ref("projects").once("value");
+        const snapshot = await db.ref("projects")
+            .orderByChild("userId")
+            .equalTo(req.user.uid)
+            .once("value");
         res.json(snapshot.val() ? Object.values(snapshot.val()) : []);
     } catch (error) {
         res.status(500).json({ error: String(error) });
     }
 });
 
-app.post("/api/projects", async (req, res) => {
+app.post("/api/projects", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
     try {
-        const { id, title, description, color, userId } = req.body;
-        if (!id || !title || !userId) return res.status(400).json({ error: "Missing fields" });
-        const newProject = { id, title, description, color, userId, createdAt: new Date().toISOString() };
+        const { id, title, description, color } = req.body;
+        if (!id || !title) return res.status(400).json({ error: "Missing fields" });
+
+        const newProject = {
+            id,
+            title,
+            description,
+            color,
+            userId: req.user.uid, // Always use authenticated user
+            createdAt: new Date().toISOString()
+        };
         await db.ref(`projects/${id}`).set(newProject);
         res.status(201).json(newProject);
     } catch (error) {
@@ -281,26 +290,65 @@ app.post("/api/projects", async (req, res) => {
     }
 });
 
-/**
- * CALLS
- */
-app.get("/api/calls", async (req, res) => {
+app.get("/api/projects/:id", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
     try {
-        const snapshot = await db.ref("calls").once("value");
+        const snapshot = await db.ref(`projects/${req.params.id}`).once("value");
+        const project = snapshot.val();
+        if (!project) return res.status(404).json({ error: "Project not found" });
+        if (project.userId !== req.user.uid) return res.status(403).json({ error: "Access denied" });
+        res.json(project);
+    } catch (error) {
+        res.status(500).json({ error: String(error) });
+    }
+});
+
+app.delete("/api/projects/:id", verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not configured" });
+    try {
+        const snapshot = await db.ref(`projects/${req.params.id}`).once("value");
+        const project = snapshot.val();
+        if (!project) return res.status(404).json({ error: "Project not found" });
+        if (project.userId !== req.user.uid) return res.status(403).json({ error: "Access denied" });
+
+        await db.ref(`projects/${req.params.id}`).remove();
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: String(error) });
+    }
+});
+
+// CALLS
+app.get("/api/calls", verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not configured" });
+    try {
+        const snapshot = await db.ref("calls")
+            .orderByChild("userId")
+            .equalTo(req.user.uid)
+            .once("value");
         res.json(snapshot.val() ? Object.values(snapshot.val()) : []);
     } catch (error) {
         res.status(500).json({ error: String(error) });
     }
 });
 
-app.post("/api/calls", async (req, res) => {
+app.post("/api/calls", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
     try {
-        const { id, title, projectId, transcript, summary, reportHtml, areas, images } = req.body;
+        const { id, title, projectId, transcript, summary, reportHtml, areas, images, roomTitle } = req.body;
         if (!id || !projectId) return res.status(400).json({ error: "Missing fields" });
+
         const newCall = {
-            id, title, projectId, transcript, summary, reportHtml, areas, images,
+            id,
+            title: title || roomTitle,
+            roomTitle,
+            projectId,
+            transcript,
+            summary,
+            reportHtml,
+            areas,
+            images,
+            userId: req.user.uid,
             createdAt: new Date().toISOString()
         };
         await db.ref(`calls/${id}`).set(newCall);
@@ -310,37 +358,80 @@ app.post("/api/calls", async (req, res) => {
     }
 });
 
-app.get("/api/calls/:id", async (req, res) => {
+app.get("/api/calls/:id", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
     try {
         const snapshot = await db.ref(`calls/${req.params.id}`).once("value");
         const call = snapshot.val();
         if (!call) return res.status(404).json({ error: "Call not found" });
+        if (call.userId !== req.user.uid) return res.status(403).json({ error: "Access denied" });
         res.json(call);
     } catch (error) {
         res.status(500).json({ error: String(error) });
     }
 });
 
-/**
- * TEMPLATES
- */
-app.get("/api/templates", async (req, res) => {
+app.put("/api/calls/:id", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
     try {
-        const snapshot = await db.ref("templates").once("value");
+        const snapshot = await db.ref(`calls/${req.params.id}`).once("value");
+        const call = snapshot.val();
+        if (!call) return res.status(404).json({ error: "Call not found" });
+        if (call.userId !== req.user.uid) return res.status(403).json({ error: "Access denied" });
+
+        const updates = req.body;
+        delete updates.id;
+        delete updates.userId;
+        await db.ref(`calls/${req.params.id}`).update(updates);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: String(error) });
+    }
+});
+
+app.delete("/api/calls/:id", verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not configured" });
+    try {
+        const snapshot = await db.ref(`calls/${req.params.id}`).once("value");
+        const call = snapshot.val();
+        if (!call) return res.status(404).json({ error: "Call not found" });
+        if (call.userId !== req.user.uid) return res.status(403).json({ error: "Access denied" });
+
+        await db.ref(`calls/${req.params.id}`).remove();
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: String(error) });
+    }
+});
+
+// TEMPLATES
+app.get("/api/templates", verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not configured" });
+    try {
+        const snapshot = await db.ref("templates")
+            .orderByChild("userId")
+            .equalTo(req.user.uid)
+            .once("value");
         res.json(snapshot.val() ? Object.values(snapshot.val()) : []);
     } catch (error) {
         res.status(500).json({ error: String(error) });
     }
 });
 
-app.post("/api/templates", async (req, res) => {
+app.post("/api/templates", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database not configured" });
     try {
-        const { id, name, description, htmlContent, userId } = req.body;
+        const { id, name, description, htmlContent } = req.body;
         if (!id || !name) return res.status(400).json({ error: "Missing fields" });
-        const newTemplate = { id, name, description, htmlContent, userId, createdAt: new Date().toISOString() };
+
+        const newTemplate = {
+            id,
+            name,
+            description,
+            htmlContent,
+            userId: req.user.uid,
+            createdAt: new Date().toISOString()
+        };
         await db.ref(`templates/${id}`).set(newTemplate);
         res.status(201).json(newTemplate);
     } catch (error) {
@@ -348,15 +439,50 @@ app.post("/api/templates", async (req, res) => {
     }
 });
 
-/**
- * AI - Transcribe Audio
- */
-app.post("/api/ai/transcribe", async (req, res) => {
+// USER STATS
+app.get("/api/users/:id/stats", verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not configured" });
+    if (req.params.id !== req.user.uid) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    try {
+        const [userSnap, projectsSnap, callsSnap] = await Promise.all([
+            db.ref(`users/${req.user.uid}`).once("value"),
+            db.ref("projects").orderByChild("userId").equalTo(req.user.uid).once("value"),
+            db.ref("calls").orderByChild("userId").equalTo(req.user.uid).once("value")
+        ]);
+
+        const user = userSnap.val() || {};
+        const projects = projectsSnap.val() ? Object.values(projectsSnap.val()) : [];
+        const calls = callsSnap.val() ? Object.values(callsSnap.val()) : [];
+
+        res.json({
+            creditsUsed: user.creditsUsed || 0,
+            creditsTotal: user.creditsTotal || 100,
+            creditsAvailable: (user.creditsTotal || 100) - (user.creditsUsed || 0),
+            projectCount: projects.length,
+            callCount: calls.length,
+            plan: user.plan || 'Free'
+        });
+    } catch (error) {
+        res.status(500).json({ error: String(error) });
+    }
+});
+
+// --- AI ENDPOINTS (require auth + use credits) ---
+
+app.post("/api/ai/transcribe", verifyToken, async (req, res) => {
     try {
         const { audio, mimeType = "audio/webm" } = req.body;
-
         if (!audio) {
             return res.status(400).json({ error: "No audio data provided" });
+        }
+
+        // Check and use credits (1 credit per transcription)
+        const hasCredits = await useCredits(req.user.uid, 1);
+        if (!hasCredits) {
+            return res.status(402).json({ error: "Crediti insufficienti" });
         }
 
         const result = await callOpenRouter([{
@@ -374,13 +500,16 @@ app.post("/api/ai/transcribe", async (req, res) => {
     }
 });
 
-/**
- * AI - Generate Report
- */
-app.post("/api/ai/generate-report", async (req, res) => {
+app.post("/api/ai/generate-report", verifyToken, async (req, res) => {
     try {
         const { projectTitle, reportTitle, transcription, areas, writingStyle = "standard" } = req.body;
         if (!transcription) return res.status(400).json({ error: "Transcription required" });
+
+        // Check and use credits (2 credits per report)
+        const hasCredits = await useCredits(req.user.uid, 2);
+        if (!hasCredits) {
+            return res.status(402).json({ error: "Crediti insufficienti" });
+        }
 
         const prompt = REPORT_GENERATION_PROMPT
             .replace("{project_title}", projectTitle || "Progetto")
@@ -400,14 +529,17 @@ app.post("/api/ai/generate-report", async (req, res) => {
     }
 });
 
-/**
- * AI - Refine Report
- */
-app.post("/api/ai/refine-report", async (req, res) => {
+app.post("/api/ai/refine-report", verifyToken, async (req, res) => {
     try {
         const { currentHtml, userMessage } = req.body;
         if (!currentHtml || !userMessage) {
             return res.status(400).json({ error: "currentHtml and userMessage required" });
+        }
+
+        // Check and use credits (1 credit per refinement)
+        const hasCredits = await useCredits(req.user.uid, 1);
+        if (!hasCredits) {
+            return res.status(402).json({ error: "Crediti insufficienti" });
         }
 
         const prompt = REFINE_PROMPT
@@ -429,11 +561,14 @@ app.post("/api/ai/refine-report", async (req, res) => {
     }
 });
 
-/**
- * AI - Convert PDF to HTML Template
- */
-app.post("/api/ai/convert-pdf", async (req, res) => {
+app.post("/api/ai/convert-pdf", verifyToken, async (req, res) => {
     try {
+        // Check and use credits (1 credit per conversion)
+        const hasCredits = await useCredits(req.user.uid, 1);
+        if (!hasCredits) {
+            return res.status(402).json({ error: "Crediti insufficienti" });
+        }
+
         const html = await callOpenRouter([
             { role: "user", content: PDF_TEMPLATE_PROMPT }
         ], MODEL_TEXT, 8000);
