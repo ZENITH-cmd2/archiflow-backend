@@ -152,14 +152,24 @@ Genera una RELAZIONE TECNICA DI SOPRALLUOGO completa e professionale in formato 
 - HTML5 valido con CSS inline professionale
 - Font: sistema, colori sobri (grigio/blu scuro)
 - Margini adatti alla stampa (2cm)
-- Intestazione con logo placeholder
 - Numerazione pagine
 - Boxes con bordi per sezioni
+
+PER IL LOGO: Inserisci nell'intestazione questo ESATTO placeholder:
+<!-- LOGO_PLACEHOLDER -->
 
 PER LE IMMAGINI: Genera placeholder con questo ESATTO formato HTML:
 <div class="photo-placeholder">[FOTO: Descrizione dell'immagine]</div>
 
-Inserisci questi placeholder nelle sezioni appropriate del documento, vicino alle descrizioni testuali corrispondenti.
+PER LA FIRMA: Alla fine del documento inserisci questa struttura ESATTA:
+<div class="signature-section">
+  <p>Il Tecnico</p>
+  <p class="signature-name"><!-- FIRMA_NOME --></p>
+  <p class="signature-reg"><!-- FIRMA_ORDINE --></p>
+  <p class="signature-company"><!-- FIRMA_STUDIO --></p>
+  <div class="signature-line">________________________</div>
+  <p>Firma</p>
+</div>
 </style_requirements>
 
 <rules>
@@ -168,7 +178,9 @@ Inserisci questi placeholder nelle sezioni appropriate del documento, vicino all
 - NON inventare dati tecnici non menzionati
 - Inizia DIRETTAMENTE con <!DOCTYPE html>
 - NESSUN markdown, solo HTML puro
-- USA il formato <div class="photo-placeholder">[FOTO: descrizione]</div> per i placeholder immagini
+- USA <!-- LOGO_PLACEHOLDER --> per il logo nell'intestazione
+- USA <div class="photo-placeholder">[FOTO: descrizione]</div> per i placeholder immagini
+- USA <!-- FIRMA_NOME -->, <!-- FIRMA_ORDINE -->, <!-- FIRMA_STUDIO --> per la firma
 </rules>`,
 
     refineReport: `<role>
