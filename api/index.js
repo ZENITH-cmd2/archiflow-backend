@@ -155,7 +155,11 @@ Genera una RELAZIONE TECNICA DI SOPRALLUOGO completa e professionale in formato 
 - Intestazione con logo placeholder
 - Numerazione pagine
 - Boxes con bordi per sezioni
-- Placeholder immagini: [FOTO: descrizione]
+
+PER LE IMMAGINI: Genera placeholder con questo ESATTO formato HTML:
+<div class="photo-placeholder">[FOTO: Descrizione dell'immagine]</div>
+
+Inserisci questi placeholder nelle sezioni appropriate del documento, vicino alle descrizioni testuali corrispondenti.
 </style_requirements>
 
 <rules>
@@ -164,6 +168,7 @@ Genera una RELAZIONE TECNICA DI SOPRALLUOGO completa e professionale in formato 
 - NON inventare dati tecnici non menzionati
 - Inizia DIRETTAMENTE con <!DOCTYPE html>
 - NESSUN markdown, solo HTML puro
+- USA il formato <div class="photo-placeholder">[FOTO: descrizione]</div> per i placeholder immagini
 </rules>`,
 
     refineReport: `<role>
