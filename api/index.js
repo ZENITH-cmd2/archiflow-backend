@@ -141,7 +141,16 @@ Trasforma il contenuto PDF in un template HTML5 professionale riutilizzabile con
 3. Media query per stampa
 4. NO markdown, solo HTML puro
 5. Inizia con <!DOCTYPE html>
-</requirements>`;
+</requirements>
+
+<critical_output_rules>
+RESTITUISCI SOLO ED ESCLUSIVAMENTE IL CODICE HTML.
+- NESSUN testo introduttivo o spiegazioni
+- NESSUN commento prima o dopo l'HTML
+- NESSUN "Ecco il template:" o frasi simili
+- Inizia DIRETTAMENTE con <!DOCTYPE html>
+- Termina con </html>
+</critical_output_rules>`;
 
 // --- HELPER FUNCTIONS ---
 
