@@ -109,79 +109,111 @@ async function verifyToken(req, res, next) {
 
 // --- AI PROMPTS ---
 const PROMPTS = {
-    transcription: `Sei un assistente professionale per architetti e geometri italiani.
-Trascrivi accuratamente l'audio fornito in italiano.
+    transcription: `Sei un trascrittore professionale specializzato in terminologia edilizia/architettonica italiana.
 
-REGOLE:
-1. Mantieni la punteggiatura corretta e i paragrafi dove necessario
-2. Usa correttamente i termini tecnici di edilizia/architettura
-3. Correggi eventuali errori grammaticali evidenti
-4. Formatta il testo in modo leggibile
+OBIETTIVO: Trascrivi l'audio in testo accurato e ben formattato.
 
-IMPORTANTE: Restituisci SOLO il testo trascritto, senza introduzioni o commenti.`,
+ISTRUZIONI:
+1. Trascrivi FEDELMENTE tutto ciò che viene detto
+2. Usa la corretta terminologia tecnica italiana (es: "soletta", "massetto", "intonaco", "tamponatura")
+3. Organizza in paragrafi logici separati da righe vuote
+4. Correggi SOLO errori grammaticali evidenti, MAI il contenuto
+5. Usa la punteggiatura appropriata per la lettura
+6. Se menzioni misure, scrivi i numeri in cifre (es: "3 metri", "45 cm")
+
+OUTPUT: Restituisci SOLO il testo trascritto, senza preamboli o commenti.`,
 
     reportGeneration: `<role>
-Sei un architetto senior italiano esperto in redazione di relazioni tecniche di cantiere.
-Hai 20+ anni di esperienza nella stesura di documenti tecnici professionali.
+Sei un tecnico professionista italiano (architetto/ingegnere/geometra) con oltre 20 anni di esperienza nella redazione di relazioni tecniche di sopralluogo per cantieri edili, ristrutturazioni e perizie.
 </role>
 
-<task>
-Genera una RELAZIONE TECNICA DI SOPRALLUOGO completa e professionale in formato HTML.
-</task>
+<mission>
+Genera una RELAZIONE TECNICA DI SOPRALLUOGO professionale, dettagliata e pronta per la stampa in formato HTML.
+</mission>
 
-<input>
+<input_data>
 - Progetto: {projectTitle}
 - Titolo Relazione: {reportTitle}
 - Data Sopralluogo: {date}
 - Aree Ispezionate: {areas}
-- Note Vocali Trascritte:
+- Stile di Scrittura: {writingStyle}
+- Trascrizione Note Vocali:
 {transcription}
-</input>
+</input_data>
 
-<structure>
-1. INTESTAZIONE: Titolo, data, riferimenti progetto
-2. PREMESSA: Oggetto del sopralluogo e finalità
-3. STATO DEI LAVORI: Descrizione dettagliata per ogni area
-4. RILIEVI FOTOGRAFICI: Placeholder per foto
-5. OSSERVAZIONI TECNICHE: Problemi riscontrati, soluzioni proposte
-6. CONCLUSIONI: Sintesi e prossimi passi
-7. FIRMA: Spazio per firma tecnico
-</structure>
+<document_structure>
+1. **INTESTAZIONE**
+   - Logo: <!-- LOGO_PLACEHOLDER -->
+   - Titolo: "Relazione Tecnica di Sopralluogo"
+   - Sottotitolo: Nome progetto
+   - Data del sopralluogo
+   - Indirizzo/ubicazione (se menzionato)
+   - Numero progressivo pagina
 
-<style_requirements>
-- HTML5 valido con CSS inline professionale
-- Font: sistema, colori sobri (grigio/blu scuro)
-- Margini adatti alla stampa (2cm)
-- Numerazione pagine
-- Boxes con bordi per sezioni
+2. **PREMESSA** (1 paragrafo)
+   - Oggetto del sopralluogo
+   - Finalità/motivazione dell'ispezione
+   - Riferimento a eventuali incarichi
 
-PER IL LOGO: Inserisci nell'intestazione questo ESATTO placeholder:
-<!-- LOGO_PLACEHOLDER -->
+3. **STATO DEI LAVORI** (per ogni area menzionata)
+   - Titolo area in grassetto
+   - Descrizione dettagliata dello stato attuale
+   - Percentuale avanzamento se menzionata
+   - Materiali osservati
+   - Lavorazioni in corso o completate
+   - Inserisci placeholder foto: <div class="photo-placeholder">[FOTO: descrizione contestuale]</div>
 
-PER LE IMMAGINI: Genera placeholder con questo ESATTO formato HTML:
-<div class="photo-placeholder">[FOTO: Descrizione dell'immagine]</div>
+4. **RILIEVI E OSSERVAZIONI TECNICHE**
+   - Problemi riscontrati (se menzionati)
+   - Non conformità rispetto a progetto/normative
+   - Elementi che richiedono attenzione
+   - Raccomandazioni tecniche
 
-PER LA FIRMA: Alla fine del documento inserisci questa struttura ESATTA:
+5. **CONCLUSIONI**
+   - Sintesi dello stato generale
+   - Azioni da intraprendere
+   - Prossimo sopralluogo (se menzionato)
+
+6. **SEZIONE FIRMA**
 <div class="signature-section">
-  <p>Il Tecnico</p>
-  <p class="signature-name"><!-- FIRMA_NOME --></p>
-  <p class="signature-reg"><!-- FIRMA_ORDINE --></p>
-  <p class="signature-company"><!-- FIRMA_STUDIO --></p>
-  <div class="signature-line">________________________</div>
-  <p>Firma</p>
+  <p style="text-align: center; margin-top: 40px;">Il Tecnico</p>
+  <p class="signature-name" style="text-align: center; font-weight: bold; font-size: 14px;"><!-- FIRMA_NOME --></p>
+  <p class="signature-reg" style="text-align: center; font-size: 12px; color: #666;"><!-- FIRMA_ORDINE --></p>
+  <p class="signature-company" style="text-align: center; font-size: 12px; color: #666;"><!-- FIRMA_STUDIO --></p>
+  <div style="text-align: center; margin-top: 30px;">________________________</div>
+  <p style="text-align: center; font-size: 11px; color: #888;">Firma</p>
 </div>
-</style_requirements>
+</document_structure>
 
-<rules>
-- Scrivi in italiano professionale/tecnico
-- ESPANDI le note vocali in descrizioni complete
-- NON inventare dati tecnici non menzionati
-- Inizia DIRETTAMENTE con <!DOCTYPE html>
-- NESSUN markdown, solo HTML puro
-- USA <!-- LOGO_PLACEHOLDER --> per il logo nell'intestazione
-- USA <div class="photo-placeholder">[FOTO: descrizione]</div> per i placeholder immagini
-- USA <!-- FIRMA_NOME -->, <!-- FIRMA_ORDINE -->, <!-- FIRMA_STUDIO --> per la firma
-</rules>`,
+<writing_style_guide>
+STILE "{writingStyle}":
+- essenziale: Frasi brevi, dirette, solo fatti. Niente aggettivi superflui.
+- standard: Tono professionale equilibrato, descrizioni chiare e complete.
+- elaborato: Linguaggio tecnico formale, descrizioni approfondite, terminologia specialistica.
+- formale: Registro burocratico-istituzionale, struttura rigida, riferimenti normativi.
+</writing_style_guide>
+
+<html_style_requirements>
+- DOCTYPE html5 con lang="it"
+- CSS inline professionale
+- Font-family: 'Segoe UI', Roboto, Arial, sans-serif
+- Colori: #1e3a5f (blu scuro titoli), #333 (testo), #f8f9fa (box sfondo)
+- Titoli sezione: font-size 16px, border-bottom 2px solid #1e3a5f
+- Paragrafi: line-height 1.7, text-align justify
+- Box sezioni: padding 15px, border 1px solid #e0e0e0, border-radius 8px
+- Intestazione pagina: background #1e3a5f con testo bianco
+</html_style_requirements>
+
+<critical_rules>
+1. ESPANDI le note vocali in testo professionale completo
+2. NON inventare MAI dati tecnici, misure o fatti non menzionati
+3. USA terminologia tecnica italiana appropriata
+4. INIZIA direttamente con <!DOCTYPE html>
+5. NESSUN markdown - solo HTML puro
+6. INSERISCI almeno un placeholder foto per area menzionata
+7. MANTIENI coerenza tra il contenuto trascritto e il report
+8. SE un'informazione non è chiara, usa espressioni come "da verificare" o "come indicato"
+</critical_rules>`,
 
     refineReport: `<role>
 Sei un assistente tecnico per documenti di architettura.
@@ -669,7 +701,7 @@ app.post("/api/ai/transcribe", verifyToken, async (req, res) => {
 
 app.post("/api/ai/generate-report", verifyToken, async (req, res) => {
     try {
-        const { projectTitle, reportTitle, transcription, areas } = req.body;
+        const { projectTitle, reportTitle, transcription, areas, writingStyle } = req.body;
 
         if (!transcription) {
             return res.status(400).json({ error: "Trascrizione mancante" });
@@ -694,6 +726,7 @@ app.post("/api/ai/generate-report", verifyToken, async (req, res) => {
                 day: 'numeric'
             }))
             .replace("{areas}", JSON.stringify(areas || []))
+            .replace(/{writingStyle}/g, writingStyle || "standard")
             .replace("{transcription}", transcription);
 
         const html = await callOpenRouter([
