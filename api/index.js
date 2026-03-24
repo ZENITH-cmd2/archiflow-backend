@@ -18,12 +18,21 @@ const app = express();
 
 // --- MIDDLEWARE ---
 app.use(cors({
-    origin: [
-        'https://archiflow-84df3.web.app',
-        'https://archiflow-84df3.firebaseapp.com',
-        'http://localhost:3000',
-        'http://localhost:5173'
-    ],
+    origin: function(origin, callback) {
+        const allowed = [
+            'https://archiflow-84df3.web.app',
+            'https://archiflow-84df3.firebaseapp.com',
+            'https://archiflow.vercel.app',
+            'http://localhost:3000',
+            'http://localhost:5173'
+        ];
+        // Allow requests with no origin (mobile apps, curl) and Vercel preview URLs
+        if (!origin || allowed.includes(origin) || /\.vercel\.app$/.test(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
@@ -213,6 +222,9 @@ STILE "{writingStyle}":
 6. INSERISCI almeno un placeholder foto per area menzionata
 7. MANTIENI coerenza tra il contenuto trascritto e il report
 8. SE un'informazione non è chiara, usa espressioni come "da verificare" o "come indicato"
+9. NON generare MAI tag <img> con src placeholder o src vuoto - usa SOLO il commento <!-- LOGO_PLACEHOLDER --> per il logo
+10. NON includere MAI stringhe come 'style="max-height: 60px"' o simili placeholder nel codice - questi verranno aggiunti automaticamente dal sistema
+11. Per il logo usa ESCLUSIVAMENTE: <!-- LOGO_PLACEHOLDER --> (il sistema lo sostituirà automaticamente)
 </critical_rules>`,
 
     refineReport: `<role>
@@ -296,29 +308,8 @@ function cleanHtmlResponse(html) {
 }
 
 async function useCredits(userId, amount) {
-    if (!db) return { success: false, error: 'Database non configurato' };
-
-    const userRef = db.ref(`users/${userId}`);
-    const snapshot = await userRef.once('value');
-    const user = snapshot.val();
-
-    if (!user) return { success: false, error: 'Utente non trovato' };
-
-    const creditsTotal = user.creditsTotal || 10;
-    const creditsUsed = user.creditsUsed || 0;
-    const available = creditsTotal - creditsUsed;
-
-    if (available < amount) {
-        return {
-            success: false,
-            error: `Crediti insufficienti (${available} disponibili, ${amount} richiesti)`,
-            available,
-            required: amount
-        };
-    }
-
-    await userRef.update({ creditsUsed: creditsUsed + amount });
-    return { success: true, remaining: available - amount };
+    // Unlimited credits - no consumption, always succeed
+    return { success: true, remaining: 999999 };
 }
 
 function validateRequired(body, fields) {
@@ -379,7 +370,7 @@ app.put("/api/users/:id", verifyToken, async (req, res) => {
     }
 
     try {
-        const allowedFields = ['name', 'avatar'];
+        const allowedFields = ['name', 'avatar', 'settings'];
         const updates = {};
         for (const field of allowedFields) {
             if (req.body[field] !== undefined) {
@@ -418,9 +409,9 @@ app.get("/api/users/:id/stats", verifyToken, async (req, res) => {
 
         res.json({
             credits: {
-                used: user.creditsUsed || 0,
-                total: user.creditsTotal || 10,
-                available: (user.creditsTotal || 10) - (user.creditsUsed || 0)
+                used: 0,
+                total: 999999,
+                available: 999999
             },
             counts: {
                 projects: projects.length,
@@ -528,19 +519,20 @@ app.post("/api/calls", verifyToken, async (req, res) => {
     if (!validation.valid) return res.status(400).json({ error: validation.error });
 
     try {
-        const { id, title, projectId, transcript, summary, reportHtml, areas, images, roomTitle } = req.body;
+        const { id, title, projectId, transcript, transcription, summary, reportHtml, areas, images, roomTitle } = req.body;
+        const transcriptionValue = transcription || transcript || '';
 
         const newCall = {
             id,
             title: title || roomTitle || 'Nuova chiamata',
             roomTitle: roomTitle || title,
             projectId,
-            transcript: transcript || '',
+            transcription: transcriptionValue,
             summary: summary || '',
             reportHtml: reportHtml || '',
             areas: areas || [],
             images: images || [],
-            status: transcript ? 'completed' : 'draft',
+            status: (transcriptionValue || reportHtml) ? 'completed' : 'draft',
             userId: req.user.uid,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
@@ -581,7 +573,7 @@ app.put("/api/calls/:id", verifyToken, async (req, res) => {
         if (!call) return res.status(404).json({ error: "Chiamata non trovata" });
         if (call.userId !== req.user.uid) return res.status(403).json({ error: "Accesso negato" });
 
-        const allowedFields = ['title', 'roomTitle', 'transcript', 'summary', 'reportHtml', 'status'];
+        const allowedFields = ['title', 'roomTitle', 'transcription', 'summary', 'reportHtml', 'status'];
         const updates = { updatedAt: new Date().toISOString() };
 
         for (const field of allowedFields) {
@@ -622,11 +614,11 @@ app.get("/api/templates", verifyToken, async (req, res) => {
     if (!db) return res.status(503).json({ error: "Database non configurato" });
 
     try {
-        const snapshot = await db.ref("templates")
-            .orderByChild("userId")
-            .equalTo(req.user.uid)
-            .once("value");
-        res.json(snapshot.val() ? Object.values(snapshot.val()) : []);
+        const snapshot = await db.ref("templates").once("value");
+        const all = snapshot.val() ? Object.values(snapshot.val()) : [];
+        // Restituisce template di sistema + template dell'utente
+        const visible = all.filter(t => t.userId === 'system' || t.userId === req.user.uid);
+        res.json(visible);
     } catch (error) {
         console.error('Get templates error:', error);
         res.status(500).json({ error: "Errore interno del server" });
